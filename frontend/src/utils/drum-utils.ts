@@ -1,44 +1,104 @@
-// drum-utils.ts
+/**
+ * drum-utils.ts
+ * Comprehensive utility functions for drum notation editing
+ */
 
-// General MIDI drum mapping
-const GM_DRUM_MAPPING: { [key: number]: string } = {
-    35: 'Acoustic Bass Drum',
-    38: 'Acoustic Snare',
-    42: 'Closed Hi-hat',
-    46: 'Open Hi-hat',
-    49: 'Crash Cymbal 1',
-    51: 'Ride Cymbal 1',
-};
-
-// Drum kit layout definitions
-const DRUM_KIT_LAYOUT = {
-    kick: 35,
-    snare: 38,
-    hiHatClosed: 42,
-    hiHatOpen: 46,
-    crash: 49,
-    ride: 51,
-};
-
-// Function to create empty drum patterns
-function createEmptyPattern(beats: number): number[] {
-    return new Array(beats).fill(0);
+export interface DrumPattern {
+  [drumName: string]: boolean[];
 }
 
-// Function to convert grid patterns to AlphaTab beats
-function gridToAlphaTab(gridPattern: number[]): string {
-    return gridPattern.map((beat, index) => beat ? 'X' : '-').join('');
-}
-
-// Function to convert AlphaTab beats back to grid patterns
-function alphaTabToGrid(alphaTab: string): number[] {
-    return [...alphaTab].map(beat => beat === 'X' ? 1 : 0);
-}
-
-export {
-    GM_DRUM_MAPPING,
-    DRUM_KIT_LAYOUT,
-    createEmptyPattern,
-    gridToAlphaTab,
-    alphaTabToGrid,
+// General MIDI Drum Map (Channel 10)
+export const GM_DRUM_MAP: { [key: string]: number } = {
+  kick: 36,
+  kickAcoustic: 35,
+  snare: 38,
+  snareElectric: 40,
+  snareSideStick: 37,
+  hiHatClosed: 42,
+  hiHatPedal: 44,
+  hiHatOpen: 46,
+  tomHigh: 50,
+  tomHighMid: 48,
+  tomLowMid: 47,
+  tomLow: 45,
+  crashCymbal1: 49,
+  crashCymbal2: 57,
+  rideCymbal1: 51,
+  rideBell: 53,
+  splashCymbal: 55,
+  chinaCymbal: 52,
+  tambourine: 54,
+  cowbell: 56,
+  handClap: 39,
 };
+
+// Reverse lookup
+export const MIDI_TO_DRUM_NAME: { [key: number]: string } = {};
+for (const [name, midi] of Object.entries(GM_DRUM_MAP)) {
+  MIDI_TO_DRUM_NAME[midi] = name;
+}
+
+export function createEmptyDrumPattern(bars: number = 1, subdivision: number = 16): DrumPattern {
+  const pattern: DrumPattern = {};
+  const totalSteps = bars * subdivision;
+  for (const drumName of Object.keys(GM_DRUM_MAP)) {
+    pattern[drumName] = Array(totalSteps).fill(false);
+  }
+  return pattern;
+}
+
+export function gridToAlphaTabBeats(grid: DrumPattern, subdivision: number, alphaTab: any): any[] {
+  const beats: any[] = [];
+  const drumNames = Object.keys(grid);
+  const totalSteps = grid[drumNames[0]]?.length || 0;
+
+  for (let step = 0; step < totalSteps; step++) {
+    const beat = new alphaTab.model.Beat();
+    switch (subdivision) {
+      case 8: beat.duration = alphaTab.model.Duration.Eighth; break;
+      case 16: beat.duration = alphaTab.model.Duration.Sixteenth; break;
+      default: beat.duration = alphaTab.model.Duration.Sixteenth;
+    }
+
+    let hasNotes = false;
+    for (const [drumName, steps] of Object.entries(grid)) {
+      if (steps[step]) {
+        const note = new alphaTab.model.Note();
+        note.fret = GM_DRUM_MAP[drumName];
+        note.string = 0;
+        beat.notes.push(note);
+        hasNotes = true;
+      }
+    }
+    if (!hasNotes) beat.isEmpty = true;
+    beats.push(beat);
+  }
+  return beats;
+}
+
+export function alphaTabBeatsToGrid(beats: any[]): DrumPattern {
+  const grid: DrumPattern = {};
+  for (const drumName of Object.keys(GM_DRUM_MAP)) {
+    grid[drumName] = [];
+  }
+  for (const beat of beats) {
+    for (const drumName of Object.keys(GM_DRUM_MAP)) {
+      const midiNote = GM_DRUM_MAP[drumName];
+      const isActive = beat.notes?.some((note: any) => note.fret === midiNote) || false;
+      grid[drumName].push(isActive);
+    }
+  }
+  return grid;
+}
+
+export function createRockBeatPattern(): DrumPattern {
+  const pattern = createEmptyDrumPattern(1, 16);
+  pattern.kick[0] = true;
+  pattern.kick[8] = true;
+  pattern.snare[4] = true;
+  pattern.snare[12] = true;
+  for (let i = 0; i < 16; i += 2) {
+    pattern.hiHatClosed[i] = true;
+  }
+  return pattern;
+}
