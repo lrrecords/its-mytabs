@@ -32,7 +32,6 @@
 </template>
 
 <script>
-import * as alphaTab from "@coderline/alphatab";
 import { defineComponent } from "vue";
 import {
   createEmptyDrumPattern,
@@ -124,6 +123,8 @@ export default defineComponent({
       }
       this.isPlaying = true;
       this.api.player.play();
+      // Phase 1: Auto-stop after 2 seconds for testing
+      // TODO Phase 2: Calculate duration based on actual bar tempo/time signature
       this.playbackTimeoutId = setTimeout(() => {
         this.stopPlayback();
       }, 2000);
