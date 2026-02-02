@@ -1,98 +1,255 @@
 <template>
   <div class="drum-grid">
-    <div v-for="row in grid" :key="row.id" class="grid-row">
-      <div v-for="cell in row.cells" :key="cell.id" class="grid-cell" @click="toggleCell(cell)">
-        <div class="cell-content" :class="{ active: cell.active }"></div>
-      </div>
+    <div class="drum-header">
+      <h4>Drum Editor - Bar {{ currentBar + 1 }}</h4>
+      <button @click="$emit('close')" class="btn btn-sm btn-secondary">Close</button>
     </div>
     <div class="controls">
-      <button @click="playPattern">Play</button>
-      <button @click="clearBars">Clear</button>
-      <button @click="loadPreset('rock')">Load Rock Beat</button>
-      <button @click="navigateBars(-1)">Previous Bar</button>
-      <button @click="navigateBars(1)">Next Bar</button>
+      <button @click="previousBar" :disabled="currentBar === 0" class="btn btn-sm btn-outline-primary">←</button>
+      <button @click="nextBar" :disabled="!hasNextBar" class="btn btn-sm btn-outline-primary">→</button>
+      <span class="bar-counter">Bar {{ currentBar + 1 }}</span>
+      <button @click="playPattern" v-if="!isPlaying" class="btn btn-sm btn-success">Play</button>
+      <button @click="stopPlayback" v-else class="btn btn-sm btn-danger">Stop</button>
+      <button @click="clearBar" class="btn btn-sm btn-warning">Clear</button>
+      <button @click="loadPattern('rock')" class="btn btn-sm btn-info">Rock Beat</button>
+    </div>
+    <div class="grid-container">
+      <div v-for="drum in displayDrums" :key="drum" class="drum-row">
+        <div class="drum-label">{{ drum }}</div>
+        <div class="cells">
+          <div
+            v-for="stepIndex in 16"
+            :key="stepIndex"
+            :class="getCellClass(drum, stepIndex - 1)"
+            @click="toggleNote(drum, stepIndex - 1)"
+          >
+            <span v-if="grid[drum] && grid[drum][stepIndex - 1]" class="note-dot">●</span>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script>
-import { createRef } from 'vue';
-import AlphaTab from 'alphatab'; // Ensure AlphaTab is installed
+import * as alphaTab from "@coderline/alphatab";
+import { defineComponent } from "vue";
+import {
+  createEmptyDrumPattern,
+  createRockBeatPattern,
+  alphaTabBeatsToGrid,
+  GM_DRUM_MAP
+} from "../../utils/drum-utils";
 
-export default {
+export default defineComponent({
+  name: "DrumGridEditor",
+  props: {
+    api: {
+      type: Object,
+      required: true
+    },
+    trackIndex: {
+      type: Number,
+      required: true
+    }
+  },
+  emits: ["close"],
   data() {
     return {
-      grid: this.createGrid(),
       currentBar: 0,
+      subdivision: 16,
+      grid: createEmptyDrumPattern(1, 16),
+      isPlaying: false,
+      displayDrums: [
+        "crashCymbal1",
+        "rideCymbal1",
+        "hiHatClosed",
+        "hiHatOpen",
+        "tomHigh",
+        "tomLowMid",
+        "snare",
+        "kick"
+      ],
+      playbackTimeoutId: null
     };
   },
+  computed: {
+    hasNextBar() {
+      const track = this._getTrack();
+      if (!track || !track.staves || track.staves.length === 0) return false;
+      const staff = track.staves[0];
+      if (!staff.bars || staff.bars.length === 0) return false;
+      return this.currentBar < staff.bars.length - 1;
+    }
+  },
+  mounted() {
+    this.loadBarIntoGrid();
+  },
   methods: {
-    createGrid() {
-      // Initialize a simple 4x4 grid for the example
-      return Array.from({ length: 4 }, (_, rowId) => ({
-        id: rowId,
-        cells: Array.from({ length: 4 }, (_, cellId) => ({ id: cellId, active: false }))
-      }));
+    _getTrack() {
+      if (!this.api || !this.api.score || !this.api.score.tracks) return null;
+      return this.api.score.tracks[this.trackIndex];
     },
-    toggleCell(cell) {
-      cell.active = !cell.active;
+    loadBarIntoGrid() {
+      const track = this._getTrack();
+      if (!track || !track.staves || track.staves.length === 0) {
+        this.grid = createEmptyDrumPattern(1, this.subdivision);
+        return;
+      }
+      const staff = track.staves[0];
+      if (!staff.bars || staff.bars.length === 0) {
+        this.grid = createEmptyDrumPattern(1, this.subdivision);
+        return;
+      }
+      const bar = staff.bars[this.currentBar];
+      if (!bar || !bar.voices || bar.voices.length === 0) {
+        this.grid = createEmptyDrumPattern(1, this.subdivision);
+        return;
+      }
+      const voice = bar.voices[0];
+      const beats = voice.beats || [];
+      this.grid = alphaTabBeatsToGrid(beats);
+    },
+    toggleNote(drumName, stepIndex) {
+      if (!this.grid[drumName]) {
+        this.grid[drumName] = Array(this.subdivision).fill(false);
+      }
+      this.grid[drumName][stepIndex] = !this.grid[drumName][stepIndex];
+      console.log(`Toggled ${drumName} at step ${stepIndex}: ${this.grid[drumName][stepIndex]}`);
     },
     playPattern() {
-      // Logic to play the pattern using AlphaTab API
-      const pattern = this.grid.reduce((acc, row) => acc.concat(row.cells.map(cell => cell.active ? 'X' : '-')), '');
-      AlphaTab.render(pattern);
+      if (!this.api || !this.api.player) {
+        console.warn("AlphaTab player not available");
+        return;
+      }
+      this.isPlaying = true;
+      this.api.player.play();
+      this.playbackTimeoutId = setTimeout(() => {
+        this.stopPlayback();
+      }, 2000);
     },
-    clearBars() {
-      this.grid.forEach(row => row.cells.forEach(cell => cell.active = false));
-    },
-    navigateBars(direction) {
-      this.currentBar += direction;
-      // Logic for navigating through bars can be added here
-    },
-    loadPreset(presetName) {
-      if (presetName === 'rock') {
-        // Load rock preset pattern; this is an example
-        this.grid.forEach((row, rowIndex) => row.cells.forEach((cell, cellIndex) => {
-          cell.active = (rowIndex == 1 && cellIndex == 0) || (rowIndex == 2 && cellIndex == 2);
-        }));
+    stopPlayback() {
+      if (this.api && this.api.player) {
+        this.api.player.stop();
+      }
+      this.isPlaying = false;
+      if (this.playbackTimeoutId) {
+        clearTimeout(this.playbackTimeoutId);
+        this.playbackTimeoutId = null;
       }
     },
-  },
-};
+    clearBar() {
+      if (confirm("Clear all notes in this bar?")) {
+        this.grid = createEmptyDrumPattern(1, this.subdivision);
+        console.log("Bar cleared");
+      }
+    },
+    loadPattern(patternName) {
+      if (patternName === "rock") {
+        this.grid = createRockBeatPattern();
+        console.log("Loaded rock beat pattern");
+      }
+    },
+    previousBar() {
+      if (this.currentBar > 0) {
+        this.currentBar--;
+        this.loadBarIntoGrid();
+      }
+    },
+    nextBar() {
+      if (this.hasNextBar) {
+        this.currentBar++;
+        this.loadBarIntoGrid();
+      }
+    },
+    getCellClass(drumName, stepIndex) {
+      const classes = ["cell"];
+      if (this.grid[drumName] && this.grid[drumName][stepIndex]) {
+        classes.push("active");
+      }
+      if (stepIndex % 4 === 0) {
+        classes.push("beat-start");
+      }
+      return classes;
+    }
+  }
+});
 </script>
 
 <style scoped>
 .drum-grid {
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius);
+  padding: 1rem;
+  background-color: var(--bs-body-bg);
+}
+
+.drum-header {
   display: flex;
-  flex-direction: column;
+  justify-content: space-between;
   align-items: center;
+  margin-bottom: 1rem;
 }
-.grid-row {
+
+.controls {
   display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
 }
-.grid-cell {
-  width: 40px;
-  height: 40px;
-  border: 1px solid #ccc;
-  margin: 2px;
-  cursor: pointer;
+
+.bar-counter {
+  font-weight: bold;
+  margin: 0 0.5rem;
+}
+
+.grid-container {
+  overflow-x: auto;
+}
+
+.drum-row {
+  display: flex;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.drum-label {
+  width: 90px;
+  font-weight: bold;
+  font-size: 0.875rem;
+}
+
+.cells {
+  display: flex;
+  gap: 2px;
+}
+
+.cell {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--bs-border-color);
+  border-radius: var(--bs-border-radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: pointer;
+  background-color: var(--bs-body-bg);
 }
-.cell-content {
-  width: 100%;
-  height: 100%;
-  background-color: #f0f0f0;
-  transition: background-color 0.3s;
+
+.cell:hover {
+  background-color: var(--bs-secondary-bg);
 }
-.cell-content.active {
-  background-color: #76e3b7;
+
+.cell.beat-start {
+  border-left: 2px solid var(--bs-primary);
 }
-.controls {
-  margin-top: 10px;
+
+.cell.active {
+  background-color: var(--bs-primary);
 }
-.controls button {
-  margin: 0 5px;
+
+.note-dot {
+  color: white;
+  font-size: 20px;
 }
 </style>
